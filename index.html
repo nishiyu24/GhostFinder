@@ -18,7 +18,7 @@
             --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         }
 
-        /* 画面全体のスクロールを無効化し、高さを画面サイズに固定 */
+        /* PC画面向け：全体のスクロールを無効化し、高さを画面サイズに固定 */
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background-color: var(--bg-body);
@@ -62,12 +62,28 @@
             box-sizing: border-box;
         }
 
+        /* 縦1列になるサイズ（モバイル・タブレットなど）向けのスタイル */
         @media (max-width: 850px) {
-            .container { 
-                grid-template-columns: 1fr; 
-                overflow-y: auto; /* モバイルでは画面全体スクロールを許容 */
+            body {
+                height: auto; /* 固定高さを解除 */
+                min-height: 100vh;
+                overflow: auto; /* 画面全体のスクロールを許可 */
             }
-            .left-panel, .right-panel { overflow-y: visible !important; height: auto !important; }
+            .container { 
+                display: flex;
+                flex-direction: column;
+                height: auto;
+                overflow: visible;
+            }
+            .left-panel, .right-panel { 
+                height: auto !important; 
+                overflow: visible !important; 
+            }
+            #followList {
+                overflow-y: visible !important;
+                height: auto !important;
+                flex: none !important;
+            }
         }
 
         /* 左パネル：要素が増えたらこの中だけでスクロール */
@@ -191,7 +207,7 @@
 
         /* 幽霊選択用のコントロールボタン群 */
         .selection-controls {
-            display: none; /* デフォルト非表示、幽霊タブ選択時のみ表示 */
+            display: none; 
             flex-wrap: wrap;
             gap: 8px;
             margin-bottom: 10px;
@@ -369,7 +385,7 @@
             <div id="followList">
                 <div style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
                     <div style="font-size: 2rem; margin-bottom: 1rem;">🔍</div>
-                    <p>データを取得するとリストが表示されます。</p>
+                    <p>データを取得すると、リストが表示されます。</p>
                 </div>
             </div>
         </div>
@@ -502,7 +518,7 @@
                 
                 // 【※推測要素】アカウントはAPI上で「有効（Active）」だがリストから漏れている場合
                 // ブロックされているか、サーバー間の同期遅延が発生している可能性が高いと推測されます。
-                return { text: '有効? (ブロック・遅延の推測)', color: '#7c3aed', bg: '#ede9fe', handle: fetchedHandle }; 
+                return { text: '有効? (被ブロック・サーバー遅延)', color: '#7c3aed', bg: '#ede9fe', handle: fetchedHandle }; 
                 
             } catch (error) {
                 return { text: '状態取得エラー', color: '#9ca3af', bg: '#f3f4f6', handle: fetchedHandle };
@@ -779,7 +795,7 @@
             const leftPanel = document.querySelector('.left-panel');
             leftPanel.scrollTop = leftPanel.scrollHeight;
             
-            alert(`${successCount}件の解除が完了しました！\n\n最新の状態を確認するには、ブラウザを更新して再度ログインしてください。`);
+            alert(`${successCount}件の解除が完了しました！\n\n最新の状態を確認するためには、ブラウザの更新ボタンを押して再度ログインしてください。`);
         }
     </script>
 </body>
