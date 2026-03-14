@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bluesky 幽霊フォロー発見器</title>
+    <style>
+        :root {
+            --primary: #0085ff;
+            --primary-hover: #0072dd;
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+            --bg-body: #f4f7f9;
+            --bg-card: #ffffff;
+            --text-main: #111827;
+            --text-muted: #6b7280;
+            --border-color: #e5e7eb;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        /* 画面全体のスクロールを無効化し、高さを画面サイズに固定 */
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            line-height: 1.5;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden; 
+        }
+
+        header {
+            background-color: var(--bg-card);
+            padding: 1.2rem;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            color: var(--primary);
+            font-weight: 800;
+            letter-spacing: -0.025em;
+        }
+
+        /* コンテナの高さを残り領域いっぱいにし、内部にグリッドを配置 */
+        .container {
+            flex: 1;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: 1fr 1.5fr;
+            gap: 2rem;
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 1.5rem;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        @media (max-width: 850px) {
+            .container { 
+                grid-template-columns: 1fr; 
+                overflow-y: auto; /* モバイルでは画面全体スクロールを許容 */
+            }
+            .left-panel, .right-panel { overflow-y: visible !important; height: auto !important; }
+        }
+
+        /* 左パネル：要素が増えたらこの中だけでスクロール */
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            height: 100%;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+
+        /* 右パネル：高さを固定し、リスト部分だけをスクロールさせる */
+        .right-panel { 
+            display: flex; 
+            flex-direction: column; 
+            height: 100%; 
+            overflow: hidden; 
+        }
+
+        /* スクロールバーのデザイン */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Card Style */
+        .card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            padding: 2rem;
+            border: 1px solid var(--border-color);
+            box-sizing: border-box;
+        }
+
+        h2 {
+            font-size: 1.25rem;
+            margin-top: 0;
+            margin-bottom: 1rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
+
+        /* Form Controls */
+        label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text-main); }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 0.8rem 1rem;
+            margin-bottom: 1.2rem;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.2s;
+            box-sizing: border-box;
+            background-color: #f9fafb;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(0, 133, 255, 0.1);
+            background-color: #fff;
+        }
+
+        button {
+            width: 100%;
+            padding: 0.8rem 1.5rem;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        #loginBtn { background-color: var(--primary); color: white; }
+        #loginBtn:hover { background-color: var(--primary-hover); }
+        #loginBtn:disabled { background-color: #93c5fd; cursor: not-allowed; }
+
+        .danger { background-color: var(--danger); color: white; }
+        .danger:hover { background-color: var(--danger-hover); }
+        .danger:disabled { background-color: #fca5a5; cursor: not-allowed; }
+
+        /* Tabs */
+        .tab-container {
+            display: flex;
+            background: #e5e7eb;
+            padding: 4px;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 0.6rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            background: transparent;
+            color: var(--text-muted);
+        }
+
+        .tab-btn.active {
+            background: white;
+            color: var(--primary);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        /* List Area */
+        #followList {
+            overflow-y: auto;
+            flex: 1;
+            min-height: 0;
+            border-radius: 12px;
+            padding: 0.5rem;
+            background: #fff;
+            border: 1px solid var(--border-color);
+        }
+
+        .list-item {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            border: 1px solid transparent;
+            transition: all 0.2s;
+            word-break: break-all;
+        }
+
+        .valid-item { border-bottom: 1px solid var(--border-color); border-radius: 0; }
+        .valid-item:hover { background-color: #f9fafb; }
+
+        .ghost-item { background-color: #fff1f2; border: 1px solid #fecaca; }
+
+        .item-name { font-weight: 700; color: var(--text-main); font-size: 0.95rem; }
+        .item-handle { color: var(--text-muted); font-size: 0.85rem; }
+        .item-did { font-size: 0.75rem; color: #9ca3af; display: block; margin-top: 4px; font-family: monospace; }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(17, 24, 39, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background: white;
+            padding: 2.5rem;
+            border-radius: 20px;
+            max-width: 550px;
+            width: 90%;
+            max-height: 85vh;
+            overflow-y: auto;
+            position: relative;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+        .close-btn { position: absolute; top: 1.5rem; right: 1.5rem; cursor: pointer; color: var(--text-muted); font-weight: bold; font-size: 1.2rem; }
+        .close-btn:hover { color: var(--text-main); }
+
+        .help-link {
+            color: var(--primary);
+            font-size: 0.85rem;
+            text-decoration: underline;
+            display: inline-block;
+            margin-top: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .help-link:hover { color: var(--primary-hover); }
+
+        .warning-box {
+            background-color: #fffbeb;
+            color: #92400e;
+            border: 1px solid #fde68a;
+            padding: 1rem;
+            border-radius: 10px;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+        }
+        
+        .highlight-red { color: var(--danger); font-weight: bold; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .list-item { animation: fadeIn 0.3s ease forwards; }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>🦋 Bluesky Follow Ghost Finder</h1>
+    </header>
+
+    <div class="container">
+        <div class="left-panel">
+            <div class="card">
+                <h2>ログイン情報</h2>
+                
+                <label>ハンドル名</label>
+                <input type="text" id="handle" placeholder="例: user.bsky.social">
+                
+                <label>アプリパスワード</label>
+                <input type="password" id="appPassword" placeholder="例: xxxx-xxxx-xxxx-xxxx">
+                
+                <button id="loginBtn" onclick="login()">ログインしてデータ取得</button>
+                
+                <div id="appPasswordHelp" style="text-align: center;">
+                    <span class="help-link" onclick="openModal()">アプリパスワードとは？（取得・削除の方法）</span>
+                </div>
+            </div>
+
+            <div class="card" id="actionCard" style="display: none;">
+                <h2>操作メニュー</h2>
+                <p id="statusText" style="font-weight: bold; color: var(--primary); margin-bottom: 1rem;">準備完了</p>
+                <button id="fixBtn" class="danger" onclick="fixFollows()" disabled>幽霊アカウントのフォローを解除</button>
+                
+                <div id="securityWarning" class="warning-box" style="display: none;">
+                    <strong>🚨 【セキュリティ警告】</strong><br>
+                    処理が完了しました。不要な場合、利用後は速やかにBlueskyの設定から今回作成したアプリパスワードを削除してください。
+                </div>
+            </div>
+        </div>
+
+        <div class="right-panel card">
+            <h2 id="listTitle" style="margin-bottom: 1rem;">全フォローリスト（未取得）</h2>
+            
+            <div class="tab-container" id="tabContainer" style="display: none;">
+                <button class="tab-btn active" id="tab-all" onclick="changeTab('all')">すべて表示</button>
+                <button class="tab-btn" id="tab-valid" onclick="changeTab('valid')">有効</button>
+                <button class="tab-btn" id="tab-invalid" onclick="changeTab('invalid')">幽霊</button>
+            </div>
+
+            <div id="followList">
+                <div style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+                    <div style="font-size: 2rem; margin-bottom: 1rem;">🔍</div>
+                    <p>ログインしてデータを取得すると、<br>ここにリストが表示されます。</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="passwordModal" class="modal-overlay" onclick="closeModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <span class="close-btn" onclick="closeModal(event)">✕</span>
+            <div class="modal-body">
+                <p style="background: #f3f4f6; padding: 1rem; border-radius: 8px; font-size: 0.9rem; margin-top: 0;">
+                    <strong>💡 アプリパスワードとは？</strong><br>
+                    あなたのメインのパスワードを教えることなく、特定のツールだけにアクセスを許可する安全な仕組みです。
+                </p>
+
+                <h3 style="margin-top: 1.5rem; border-bottom: 2px solid #eee; padding-bottom: 5px; font-size: 1.1rem;">📝 取得方法</h3>
+                <ol style="font-size: 0.95rem; padding-left: 1.5rem; line-height: 1.8;">
+                    <li>Blueskyの「設定」を開く</li>
+                    <li>「プライバシーとセキュリティ」を選択</li>
+                    <li>「アプリパスワード」を選択 (<a href="https://bsky.app/settings/app-passwords" target="_blank" rel="noopener noreferrer" style="color: var(--primary);">直接開く</a>)</li>
+                    <li><strong>「アプリパスワードを追加」</strong>ボタンを押す</li>
+                    <li>自由に名前を入れる（利用するサービスの名前を入れるといいかも）</li>
+                    <li>表示されたパスワードをコピーして保存する<br>
+                        <span style="font-size: 0.85rem;" class="highlight-red">※このパスワードはこの時1回しか表示されないので注意してください。</span>
+                    </li>
+                </ol>
+
+                <h3 style="margin-top: 2rem; border-bottom: 2px solid #eee; padding-bottom: 5px; font-size: 1.1rem;">🗑️ 削除方法</h3>
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">※ツールを使い終わった後は、安全のために以下の手順で削除してください。</p>
+                <ol style="font-size: 0.95rem; padding-left: 1.5rem; line-height: 1.8;">
+                    <li>取得時と同じく「アプリパスワード」の設定画面を開く</li>
+                    <li>作成したパスワードの右側にある<strong>ゴミ箱マーク（削除）</strong>を選択する</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // グローバル変数
+        let sessionHeaders = {};
+        let userDid = "";
+        let ghostRecords = [];
+
+        // モーダルの開閉処理
+        function openModal() { document.getElementById('passwordModal').style.display = 'flex'; }
+        function closeModal(event) { 
+            if(event) event.stopPropagation();
+            document.getElementById('passwordModal').style.display = 'none'; 
+        }
+
+        // 1. ログイン処理
+        async function login() {
+            const handle = document.getElementById("handle").value.trim();
+            const password = document.getElementById("appPassword").value.trim();
+            const statusText = document.getElementById("statusText");
+            const loginBtn = document.getElementById("loginBtn");
+
+            if (!handle || !password) {
+                alert("ハンドル名とアプリパスワードを入力してください。");
+                return;
+            }
+
+            document.getElementById("appPasswordHelp").style.display = "none";
+            loginBtn.disabled = true;
+            loginBtn.textContent = "ログインを実行中...";
+            document.getElementById("actionCard").style.display = "block";
+            statusText.textContent = "ログインを実行中...";
+            statusText.style.color = "var(--primary)";
+
+            try {
+                const sessionRes = await fetch("https://bsky.social/xrpc/com.atproto.server.createSession", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ identifier: handle, password: password })
+                });
+
+                if (!sessionRes.ok) {
+                    throw new Error("ログインに失敗しました");
+                }
+
+                const sessionData = await sessionRes.json();
+                sessionHeaders = { "Authorization": `Bearer ${sessionData.accessJwt}` };
+                userDid = sessionData.did;
+                
+                loginBtn.textContent = "取得完了";
+                await analyzeData();
+
+            } catch (error) {
+                statusText.textContent = "ログインに失敗しました。情報をご確認ください。";
+                statusText.style.color = "var(--danger)";
+                loginBtn.disabled = false;
+                loginBtn.textContent = "ログインしてデータ取得";
+                document.getElementById("appPasswordHelp").style.display = "block";
+                console.error(error);
+            }
+        }
+
+        // 2. データの取得・差分チェック・右側リストの描画
+        async function analyzeData() {
+            const statusText = document.getElementById("statusText");
+            try {
+                statusText.textContent = "有効なフォローリストを取得中...";
+                const validFollowsMap = new Map();
+                let cursor = null;
+                do {
+                    let url = `https://bsky.social/xrpc/app.bsky.graph.getFollows?actor=${encodeURIComponent(userDid)}&limit=100`;
+                    if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
+                    const res = await fetch(url, { headers: sessionHeaders });
+                    if (!res.ok) throw new Error("有効なフォローの取得に失敗しました");
+                    const data = await res.json();
+                    data.follows.forEach(f => validFollowsMap.set(f.did, f));
+                    cursor = data.cursor;
+                } while (cursor);
+
+                statusText.textContent = "全体のフォロー記録を取得中...";
+                const allRecords = [];
+                cursor = null;
+                do {
+                    let url = `https://bsky.social/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(userDid)}&collection=app.bsky.graph.follow&limit=100`;
+                    if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
+                    const res = await fetch(url, { headers: sessionHeaders });
+                    if (!res.ok) throw new Error("生データの取得に失敗しました");
+                    const data = await res.json();
+                    data.records.forEach(r => allRecords.push({ targetDid: r.value.subject, rkey: r.uri.split("/").pop() }));
+                    cursor = data.cursor;
+                } while (cursor);
+
+                statusText.textContent = "データの差分を解析中...";
+                ghostRecords = [];
+                const listContainer = document.getElementById("followList");
+                listContainer.innerHTML = "";
+                
+                document.getElementById("listTitle").textContent = `全フォローリスト（総数: ${allRecords.length}件）`;
+                document.getElementById("tabContainer").style.display = "flex";
+
+                allRecords.forEach((rec, index) => {
+                    const itemDiv = document.createElement("div");
+                    itemDiv.className = "list-item";
+                    if (validFollowsMap.has(rec.targetDid)) {
+                        const userInfo = validFollowsMap.get(rec.targetDid);
+                        const displayName = userInfo.displayName || "名前未設定";
+                        itemDiv.classList.add("valid-item");
+                        itemDiv.setAttribute("data-type", "valid");
+                        itemDiv.innerHTML = `
+                            <span class="item-name">${index + 1}. ${displayName}</span>
+                            <span class="item-handle">@${userInfo.handle}</span>
+                            <span class="item-did">DID: ${rec.targetDid}</span>
+                        `;
+                    } else {
+                        ghostRecords.push(rec);
+                        itemDiv.classList.add("ghost-item");
+                        itemDiv.setAttribute("data-type", "invalid");
+                        itemDiv.innerHTML = `
+                            <span class="item-name">🚨 ${index + 1}. [無効/非表示アカウント]</span>
+                            <span class="item-did" style="color: var(--danger);">解除対象DID: ${rec.targetDid}</span>
+                            <span class="item-did">レコードキー: ${rec.rkey}</span>
+                        `;
+                    }
+                    listContainer.appendChild(itemDiv);
+                });
+
+                document.getElementById("tab-all").textContent = `すべて (${allRecords.length})`;
+                document.getElementById("tab-valid").textContent = `有効 (${validFollowsMap.size})`;
+                document.getElementById("tab-invalid").textContent = `幽霊 (${ghostRecords.length})`;
+
+                const fixBtn = document.getElementById("fixBtn");
+                if (ghostRecords.length === 0) {
+                    statusText.textContent = "幽霊アカウントは0件です。";
+                    statusText.style.color = "#10b981"; // 成功の緑色
+                    fixBtn.disabled = true;
+                    document.getElementById("securityWarning").style.display = "block";
+                } else {
+                    statusText.textContent = `⚠️ 幽霊フォローを ${ghostRecords.length} 件検出しました。`;
+                    statusText.style.color = "var(--danger)";
+                    fixBtn.disabled = false;
+                }
+            } catch (error) {
+                statusText.textContent = "データの取得中にエラーが発生しました。";
+                statusText.style.color = "var(--danger)";
+                console.error(error);
+            }
+        }
+
+        // タブ切り替え処理
+        function changeTab(tabName) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('tab-' + tabName).classList.add('active');
+            
+            document.querySelectorAll('.list-item').forEach(item => {
+                const type = item.getAttribute('data-type');
+                if (tabName === 'all' || tabName === type) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        }
+
+        // 3. 解除処理
+        async function fixFollows() {
+            if (!confirm(`幽霊として検出された ${ghostRecords.length} 件のアカウントのフォローを解除しますか？\n（この操作は取り消せません）`)) {
+                return;
+            }
+
+            const fixBtn = document.getElementById("fixBtn");
+            const statusText = document.getElementById("statusText");
+            
+            fixBtn.disabled = true;
+            statusText.textContent = "を開始します...";
+            statusText.style.color = "var(--primary)";
+
+            let successCount = 0;
+            for (let i = 0; i < ghostRecords.length; i++) {
+                statusText.textContent = `解除を実行中... (${i + 1} / ${ghostRecords.length} 件目)`;
+
+                try {
+                    const res = await fetch("https://bsky.social/xrpc/com.atproto.repo.deleteRecord", {
+                        method: "POST",
+                        headers: {
+                            ...sessionHeaders,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            repo: userDid,
+                            collection: "app.bsky.graph.follow",
+                            rkey: ghostRecords[i].rkey
+                        })
+                    });
+
+                    if (res.ok) {
+                        successCount++;
+                    } else {
+                        console.error(`解除失敗: ${await res.text()}`);
+                    }
+                } catch (error) {
+                    console.error(`通信エラー: ${error.message}`);
+                }
+            }
+
+            statusText.textContent = "解除が完了しました。";
+            statusText.style.color = "#10b981"; // 成功の緑色
+            ghostRecords = [];
+            
+            document.getElementById("securityWarning").style.display = "block";
+            
+            // 処理完了後、左パネルを下までスクロールして警告文を見せる
+            const leftPanel = document.querySelector('.left-panel');
+            leftPanel.scrollTop = leftPanel.scrollHeight;
+            
+            alert(`${successCount}件の解除が完了しました！\n\n【重要：セキュリティ警告】\n安全のため、利用後は速やかにBlueskyの設定から、今回作成したアプリパスワードを削除してください。\n\n最新の状態を確認するためには、ブラウザの更新ボタンを押して再度ログインしてください。`);
+        }
+    </script>
+</body>
+</html>
