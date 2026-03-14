@@ -137,7 +137,7 @@
             background-color: #fff;
         }
 
-        button {
+        button.main-btn {
             width: 100%;
             padding: 0.8rem 1.5rem;
             border-radius: 10px;
@@ -178,12 +178,47 @@
             font-size: 0.85rem;
             background: transparent;
             color: var(--text-muted);
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
         }
 
         .tab-btn.active {
             background: white;
             color: var(--primary);
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        /* 幽霊選択用のコントロールボタン群 */
+        .selection-controls {
+            display: none; /* デフォルト非表示、幽霊タブ選択時のみ表示 */
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #f9fafb;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+        
+        .selection-controls button {
+            flex: 1;
+            min-width: 120px;
+            padding: 0.5rem;
+            font-size: 0.8rem;
+            background-color: #ffffff;
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .selection-controls button:hover {
+            background-color: #e5e7eb;
+            border-color: #d1d5db;
         }
 
         /* List Area */
@@ -210,6 +245,14 @@
         .valid-item:hover { background-color: #f9fafb; }
 
         .ghost-item { background-color: #fff1f2; border: 1px solid #fecaca; }
+
+        /* チェックボックスのスタイル */
+        .ghost-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            margin: 0;
+        }
 
         .item-name { font-weight: 700; color: var(--text-main); font-size: 0.95rem; }
         .item-handle { color: var(--text-muted); font-size: 0.85rem; }
@@ -288,7 +331,7 @@
                 <label>アプリパスワード</label>
                 <input type="password" id="appPassword" placeholder="例: xxxx-xxxx-xxxx-xxxx">
                 
-                <button id="loginBtn" onclick="login()">ログインしてデータ取得</button>
+                <button class="main-btn" id="loginBtn" onclick="login()">ログインしてデータ取得</button>
                 
                 <div id="appPasswordHelp" style="text-align: center;">
                     <span class="help-link" onclick="openModal()">アプリパスワードとは？（取得・削除の方法）</span>
@@ -298,7 +341,7 @@
             <div class="card" id="actionCard" style="display: none;">
                 <h2>操作メニュー</h2>
                 <p id="statusText" style="font-weight: bold; color: var(--primary); margin-bottom: 1rem;">準備完了</p>
-                <button id="fixBtn" class="danger" onclick="fixFollows()" disabled>幽霊アカウントのフォローを解除</button>
+                <button class="main-btn danger" id="fixBtn" onclick="fixFollows()" disabled>幽霊アカウントのフォローを解除</button>
                 
                 <div id="securityWarning" class="warning-box" style="display: none;">
                     <strong>🚨 【セキュリティ警告】</strong><br>
@@ -316,10 +359,17 @@
                 <button class="tab-btn" id="tab-invalid" onclick="changeTab('invalid')">幽霊</button>
             </div>
 
+            <div class="selection-controls" id="selectionControls">
+                <button onclick="selectCheckboxes('all')">全て選択</button>
+                <button onclick="selectCheckboxes('none')">全て解除</button>
+                <button onclick="selectCheckboxes('deleted')">削除済を選択</button>
+                <button onclick="selectCheckboxes('deactivated')">無効化を選択</button>
+            </div>
+
             <div id="followList">
                 <div style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
                     <div style="font-size: 2rem; margin-bottom: 1rem;">🔍</div>
-                    <p>ログインしてデータを取得すると、<br>ここにリストが表示されます。</p>
+                    <p>データを取得するとリストが表示されます。</p>
                 </div>
             </div>
         </div>
@@ -367,6 +417,96 @@
         function closeModal(event) { 
             if(event) event.stopPropagation();
             document.getElementById('passwordModal').style.display = 'none'; 
+        }
+
+        // AT ProtocolのAPIを叩いて、アカウントの具体的な無効理由とハンドル名を取得する関数
+        async function getGhostStatus(did) {
+            let fetchedHandle = "取得不可";
+
+            try {
+                if (did.startsWith('did:web:')) {
+                    fetchedHandle = "@" + did.replace('did:web:', '');
+                } else {
+                    try {
+                        const plcRes = await fetch(`https://plc.directory/${did}`);
+                        if (plcRes.ok) {
+                            const didDoc = await plcRes.json();
+                            if (didDoc.alsoKnownAs && didDoc.alsoKnownAs.length > 0) {
+                                const aka = didDoc.alsoKnownAs[0];
+                                fetchedHandle = "@" + aka.replace("at://", "");
+                            }
+                        }
+                    } catch (e) {
+                        // ハンドル名の取得に失敗しても処理は続行
+                    }
+                }
+
+                // 1. AppView（メインサーバー）に状態を問い合わせる
+                let res = await fetch(`https://bsky.social/xrpc/com.atproto.sync.getRepoStatus?did=${encodeURIComponent(did)}`, {
+                    method: 'GET',
+                    headers: sessionHeaders
+                });
+                
+                let data = null;
+                let rawError = null;
+
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    rawError = errorData.error || 'UnknownError';
+                } else {
+                    data = await res.json();
+                }
+
+                // 2. もしメインサーバーで「RepoNotFound」だった場合、大元のPDS（個人サーバー）を直接探して問い合わせる
+                if (rawError === 'RepoNotFound') {
+                    try {
+                        const plcRes = await fetch(`https://plc.directory/${did}`);
+                        if (plcRes.ok) {
+                            const didDoc = await plcRes.json();
+                            const pdsService = didDoc.service?.find(s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer');
+                            const pdsUrl = pdsService?.serviceEndpoint;
+                            
+                            if (pdsUrl && pdsUrl !== 'https://bsky.social') {
+                                const pdsRes = await fetch(`${pdsUrl}/xrpc/com.atproto.sync.getRepoStatus?did=${encodeURIComponent(did)}`).catch(() => null);
+                                if (pdsRes) {
+                                    if (!pdsRes.ok) {
+                                        const pdsErrorData = await pdsRes.json().catch(() => ({}));
+                                        rawError = pdsErrorData.error || rawError;
+                                    } else {
+                                        data = await pdsRes.json();
+                                        rawError = null; 
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        // PLCディレクトリの解決エラー時はそのまま進む
+                    }
+                }
+
+                // 3. 取得した情報から最終的なステータスを判定
+                if (rawError) {
+                    if (rawError === 'RepoNotFound') return { text: 'アカウント削除済', color: '#6b7280', bg: '#f3f4f6', handle: fetchedHandle }; 
+                    if (rawError === 'RepoDeactivated' || rawError === 'AccountDeactivated') return { text: '無効化 (一時休眠)', color: '#d97706', bg: '#fef3c7', handle: fetchedHandle }; 
+                    if (rawError === 'RepoTakendown' || rawError === 'RepoSuspended') return { text: '運営による凍結', color: '#dc2626', bg: '#fee2e2', handle: fetchedHandle };
+                    return { text: `不明 (${rawError})`, color: '#4b5563', bg: '#e5e7eb', handle: fetchedHandle };
+                }
+                
+                if (data && data.active === false) {
+                    const status = data.status;
+                    if (status === 'takendown' || status === 'suspended') return { text: '運営による凍結', color: '#dc2626', bg: '#fee2e2', handle: fetchedHandle };
+                    if (status === 'deactivated') return { text: '無効化 (一時休眠)', color: '#d97706', bg: '#fef3c7', handle: fetchedHandle };
+                    if (status === 'deleted') return { text: 'アカウント削除済', color: '#6b7280', bg: '#f3f4f6', handle: fetchedHandle };
+                    return { text: `非アクティブ (${status})`, color: '#4b5563', bg: '#e5e7eb', handle: fetchedHandle };
+                }
+                
+                // 【※推測要素】アカウントはAPI上で「有効（Active）」だがリストから漏れている場合
+                // ブロックされているか、サーバー間の同期遅延が発生している可能性が高いと推測されます。
+                return { text: '有効? (ブロック・遅延の推測)', color: '#7c3aed', bg: '#ede9fe', handle: fetchedHandle }; 
+                
+            } catch (error) {
+                return { text: '状態取得エラー', color: '#9ca3af', bg: '#f3f4f6', handle: fetchedHandle };
+            }
         }
 
         // 1. ログイン処理
@@ -457,6 +597,7 @@
                 allRecords.forEach((rec, index) => {
                     const itemDiv = document.createElement("div");
                     itemDiv.className = "list-item";
+                    
                     if (validFollowsMap.has(rec.targetDid)) {
                         const userInfo = validFollowsMap.get(rec.targetDid);
                         const displayName = userInfo.displayName || "名前未設定";
@@ -467,17 +608,47 @@
                             <span class="item-handle">@${userInfo.handle}</span>
                             <span class="item-did">DID: ${rec.targetDid}</span>
                         `;
+                        listContainer.appendChild(itemDiv);
                     } else {
                         ghostRecords.push(rec);
                         itemDiv.classList.add("ghost-item");
                         itemDiv.setAttribute("data-type", "invalid");
+                        
+                        // チェックボックスとバッジ表示用のエリアを作成（デフォルトで全チェック状態にする）
                         itemDiv.innerHTML = `
-                            <span class="item-name">🚨 ${index + 1}. [削除済 / 無効化アカウント(区別不可)]</span>
-                            <span class="item-did" style="color: var(--danger);">解除対象DID: ${rec.targetDid}</span>
-                            <span class="item-did">レコードキー: ${rec.rkey}</span>
+                            <label style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; cursor: pointer; margin-bottom: 4px;">
+                                <input type="checkbox" class="ghost-checkbox" id="checkbox-${rec.rkey}" value="${rec.rkey}" data-did="${rec.targetDid}">
+                                <span class="item-name" id="name-${rec.rkey}">🚨 情報取得中...</span>
+                                <span id="badge-${rec.rkey}" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 9999px; background-color: #e5e7eb; color: #4b5563; font-weight: bold; white-space: nowrap;">状態確認中...</span>
+                            </label>
+                            <div style="margin-left: 28px;">
+                                <span class="item-did" style="color: var(--danger); margin-top: 6px;">解除対象DID: ${rec.targetDid}</span>
+                                <span class="item-did">レコードキー: ${rec.rkey}</span>
+                            </div>
                         `;
+                        listContainer.appendChild(itemDiv);
+
+                        // 非同期でAPIを叩いてステータスバッジとハンドル名を更新する
+                        getGhostStatus(rec.targetDid).then(statusObj => {
+                            const badge = document.getElementById(`badge-${rec.rkey}`);
+                            if (badge) {
+                                badge.textContent = statusObj.text;
+                                badge.style.color = statusObj.color;
+                                badge.style.backgroundColor = statusObj.bg;
+                            }
+                            
+                            const nameSpan = document.getElementById(`name-${rec.rkey}`);
+                            if (nameSpan) {
+                                nameSpan.textContent = `🚨 ${statusObj.handle}`;
+                            }
+
+                            // 選択機能でフィルタリングできるように、チェックボックスにステータスを付与
+                            const checkbox = document.getElementById(`checkbox-${rec.rkey}`);
+                            if (checkbox) {
+                                checkbox.setAttribute('data-status', statusObj.text);
+                            }
+                        });
                     }
-                    listContainer.appendChild(itemDiv);
                 });
 
                 document.getElementById("tab-all").textContent = `すべて (${allRecords.length})`;
@@ -507,6 +678,14 @@
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             document.getElementById('tab-' + tabName).classList.add('active');
             
+            // 幽霊タブが選ばれた時だけ専用の選択メニューを表示する
+            const selectionControls = document.getElementById('selectionControls');
+            if (tabName === 'invalid') {
+                selectionControls.style.display = 'flex';
+            } else {
+                selectionControls.style.display = 'none';
+            }
+
             document.querySelectorAll('.list-item').forEach(item => {
                 const type = item.getAttribute('data-type');
                 if (tabName === 'all' || tabName === type) {
@@ -517,22 +696,55 @@
             });
         }
 
-        // 3. 解除処理
+        // 幽霊アカウントのチェックボックス一括操作
+        function selectCheckboxes(action) {
+            const checkboxes = document.querySelectorAll('.ghost-checkbox');
+            checkboxes.forEach(cb => {
+                const status = cb.getAttribute('data-status');
+                if (action === 'all') {
+                    cb.checked = true;
+                } else if (action === 'none') {
+                    cb.checked = false;
+                } else if (action === 'deleted') {
+                    // 「アカウント削除済」だけをONにし、それ以外はOFFにする
+                    cb.checked = (status === 'アカウント削除済');
+                } else if (action === 'deactivated') {
+                    // 「無効化 (一時休眠)」だけをONにし、それ以外はOFFにする
+                    cb.checked = (status === '無効化 (一時休眠)');
+                }
+            });
+        }
+
+        // 3. 解除処理（チェックされたものだけを対象にする）
         async function fixFollows() {
-            if (!confirm(`幽霊として検出された ${ghostRecords.length} 件のアカウントのフォローを解除しますか？\n（この操作は取り消せません）`)) {
+            // チェックされているチェックボックスだけを取得
+            const checkedBoxes = document.querySelectorAll('.ghost-checkbox:checked');
+            
+            if (checkedBoxes.length === 0) {
+                alert("解除するアカウントが選択されていません。\nリストのチェックボックスを確認してください。");
                 return;
             }
+
+            if (!confirm(`選択された ${checkedBoxes.length} 件のアカウントのフォローを解除しますか？\n（この操作は取り消せません）`)) {
+                return;
+            }
+
+            // 解除対象のデータを配列化
+            const targets = Array.from(checkedBoxes).map(cb => ({
+                rkey: cb.value,
+                targetDid: cb.getAttribute('data-did')
+            }));
 
             const fixBtn = document.getElementById("fixBtn");
             const statusText = document.getElementById("statusText");
             
             fixBtn.disabled = true;
-            statusText.textContent = "を開始します...";
+            statusText.textContent = "解除を開始します...";
             statusText.style.color = "var(--primary)";
 
             let successCount = 0;
-            for (let i = 0; i < ghostRecords.length; i++) {
-                statusText.textContent = `解除を実行中... (${i + 1} / ${ghostRecords.length} 件目)`;
+            for (let i = 0; i < targets.length; i++) {
+                statusText.textContent = `解除を実行中... (${i + 1} / ${targets.length} 件目)`;
 
                 try {
                     const res = await fetch("https://bsky.social/xrpc/com.atproto.repo.deleteRecord", {
@@ -544,7 +756,7 @@
                         body: JSON.stringify({
                             repo: userDid,
                             collection: "app.bsky.graph.follow",
-                            rkey: ghostRecords[i].rkey
+                            rkey: targets[i].rkey
                         })
                     });
 
@@ -560,7 +772,6 @@
 
             statusText.textContent = "解除が完了しました。";
             statusText.style.color = "#10b981"; // 成功の緑色
-            ghostRecords = [];
             
             document.getElementById("securityWarning").style.display = "block";
             
@@ -568,7 +779,7 @@
             const leftPanel = document.querySelector('.left-panel');
             leftPanel.scrollTop = leftPanel.scrollHeight;
             
-            alert(`${successCount}件の解除が完了しました！\n\n最新の状態を確認するためには、ブラウザの更新ボタンを押して再度ログインしてください。`);
+            alert(`${successCount}件の解除が完了しました！\n\n最新の状態を確認するには、ブラウザを更新して再度ログインしてください。`);
         }
     </script>
 </body>
